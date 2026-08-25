@@ -16,6 +16,30 @@ import {
   getCachedProducts
 } from '../utils/indexedDB'
 
+const PAYMENT_METHODS = [
+  {
+    id: 'cash',
+    label: 'Cash Payment',
+    description: 'Fast checkout, change calculator',
+    icon: '💵',
+    iconBg: 'bg-green-100'
+  },
+  {
+    id: 'gcash',
+    label: 'GCash e-Wallet',
+    description: 'Instant QR code generation',
+    icon: '📱',
+    iconBg: 'bg-blue-100'
+  },
+  {
+    id: 'maya',
+    label: 'Maya QR',
+    description: 'Scan and pay instantly',
+    icon: '🟩',
+    iconBg: 'bg-amber-100'
+  }
+]
+
 export default function POS() {
   const { user, profile } = useAuth()
   const navigate = useNavigate()
@@ -26,10 +50,11 @@ export default function POS() {
   const [searchQuery, setSearchQuery] = useState('')
   const [isOnline, setIsOnline] = useState(navigator.onLine)
   const [showPayment, setShowPayment] = useState(false)
+  const [selectedPayment, setSelectedPayment] = useState('cash')
+  const [orderRef, setOrderRef] = useState(null)
   const [loading, setLoading] = useState(true)
 
   useEffect(() => {
-    loadProducts()
     loadCart()
 
     window.addEventListener('online', handleOnline)
@@ -41,6 +66,12 @@ export default function POS() {
     }
   }, [])
 
+  useEffect(() => {
+    // profile loads asynchronously after auth resolves — wait for it
+    if (!profile) return
+    loadProducts()
+  }, [profile])
+
   function handleOnline() {
     setIsOnline(true)
     syncPendingSales()
@@ -51,6 +82,14 @@ export default function POS() {
   }
 
   async function loadProducts() {
+    if (!profile?.tenant_id) {
+      const cached = await getCachedProducts()
+      setProducts(cached)
+      setCategories(['All', ...new Set(cached.map(p => p.category))])
+      setLoading(false)
+      return
+    }
+
     try {
       const { data, error } = await supabase
         .from('products')
@@ -132,6 +171,12 @@ export default function POS() {
   async function handleRemoveFromCart(productId) {
     await removeFromCart(productId)
     setCart(prev => prev.filter(i => i.id !== productId))
+  }
+
+  function openPayment() {
+    setOrderRef(`#${Date.now().toString().slice(-4)}`)
+    setSelectedPayment('cash')
+    setShowPayment(true)
   }
 
   async function handleCheckout(paymentMethod) {
@@ -283,23 +328,28 @@ export default function POS() {
     return matchesCategory && matchesSearch
   })
 
+  // Prices are VAT-inclusive; back out the 12% VAT for the receipt-style breakdown
+  const VAT_RATE = 0.12
   const cartTotal = cart.reduce((sum, item) => sum + (item.price * item.quantity), 0)
+  const netSubtotal = cartTotal / (1 + VAT_RATE)
+  const vatAmount = cartTotal - netSubtotal
+  const selectedMethod = PAYMENT_METHODS.find(m => m.id === selectedPayment)
 
   return (
-    <div className="min-h-screen bg-dark-900 flex flex-col">
+    <div className="min-h-screen bg-gray-50 flex flex-col">
       {!isOnline && (
         <div className="fixed top-0 left-0 right-0 bg-amber-500 text-black text-center py-2 text-sm font-medium z-50">
           Offline Mode - Sales will sync when connected
         </div>
       )}
 
-      <header className={`bg-dark-800 border-b border-dark-700 ${!isOnline ? 'mt-10' : ''}`}>
+      <header className={`bg-white border-b border-gray-200 ${!isOnline ? 'mt-10' : ''}`}>
         <div className="px-4 py-3 flex items-center justify-between">
-          <button onClick={() => navigate('/')} className="text-dark-400 hover:text-white transition-colors">
+          <button onClick={() => navigate('/')} className="text-gray-500 hover:text-gray-900 transition-colors">
             &larr; Back
           </button>
-          <h1 className="font-bold text-lg">
-            <span className="text-primary-500">Sale</span> Ease
+          <h1 className="font-bold text-lg text-gray-900">
+            <span className="text-blue-600">Sale</span> Ease
           </h1>
           <div className="w-16"></div>
         </div>
@@ -312,7 +362,7 @@ export default function POS() {
               type="text"
               value={searchQuery}
               onChange={(e) => setSearchQuery(e.target.value)}
-              className="w-full bg-dark-800 border border-dark-700 rounded-xl px-4 py-3 text-white placeholder-dark-400 focus:outline-none focus:ring-2 focus:ring-primary-500"
+              className="w-full bg-white border border-gray-300 rounded-xl px-4 py-3 text-gray-900 placeholder-gray-400 focus:outline-none focus:ring-2 focus:ring-blue-500"
               placeholder="Search products..."
             />
           </div>
@@ -324,8 +374,8 @@ export default function POS() {
                 onClick={() => setSelectedCategory(category)}
                 className={`px-4 py-2 rounded-full text-sm font-medium whitespace-nowrap transition-colors ${
                   selectedCategory === category
-                    ? 'bg-primary-600 text-white'
-                    : 'bg-dark-800 text-dark-300 hover:bg-dark-700 border border-dark-700'
+                    ? 'bg-blue-600 text-white'
+                    : 'bg-white text-gray-600 hover:bg-gray-100 border border-gray-300'
                 }`}
               >
                 {category}
@@ -335,7 +385,7 @@ export default function POS() {
 
           {loading ? (
             <div className="flex items-center justify-center py-20">
-              <div className="animate-spin rounded-full h-12 w-12 border-b-2 border-primary-500"></div>
+              <div className="animate-spin rounded-full h-12 w-12 border-b-2 border-blue-600"></div>
             </div>
           ) : (
             <div className="grid grid-cols-2 sm:grid-cols-3 lg:grid-cols-4 gap-3">
@@ -344,13 +394,13 @@ export default function POS() {
                   key={product.id}
                   onClick={() => handleAddToCart(product)}
                   disabled={product.stock_quantity <= 0}
-                  className={`bg-dark-800 rounded-2xl p-3 text-left border border-dark-700 transition-all active:scale-95 ${
+                  className={`bg-white rounded-2xl p-3 text-left border border-gray-200 transition-all active:scale-95 ${
                     product.stock_quantity <= 0
                       ? 'opacity-50 cursor-not-allowed'
-                      : 'hover:border-primary-500'
+                      : 'hover:border-blue-500 hover:shadow-sm'
                   }`}
                 >
-                  <div className="aspect-square bg-dark-700 rounded-xl mb-2 flex items-center justify-center overflow-hidden">
+                  <div className="aspect-square bg-gray-100 rounded-xl mb-2 flex items-center justify-center overflow-hidden">
                     {product.image_url ? (
                       <img
                         src={product.image_url}
@@ -361,15 +411,15 @@ export default function POS() {
                       <span className="text-3xl opacity-50">📦</span>
                     )}
                   </div>
-                  <h3 className="font-medium text-sm truncate text-white">{product.name}</h3>
-                  <p className="text-primary-500 font-bold text-sm">₱{product.price}</p>
-                  <p className="text-dark-400 text-xs mt-1">
+                  <h3 className="font-medium text-sm truncate text-gray-900">{product.name}</h3>
+                  <p className="text-blue-600 font-bold text-sm">₱{product.price}</p>
+                  <p className="text-gray-400 text-xs mt-1">
                     {product.stock_quantity > 0 ? `Stock: ${product.stock_quantity}` : 'Out of stock'}
                   </p>
                 </button>
               ))}
               {filteredProducts.length === 0 && (
-                <div className="col-span-full text-center py-10 text-dark-400">
+                <div className="col-span-full text-center py-10 text-gray-400">
                   <p className="text-4xl mb-2">📦</p>
                   <p>No products found</p>
                 </div>
@@ -378,54 +428,56 @@ export default function POS() {
           )}
         </div>
 
-        <div className="w-full md:w-96 bg-dark-800 border-t md:border-t-0 md:border-l border-dark-700 flex flex-col max-h-[50vh] md:max-h-none">
-          <div className="p-4 border-b border-dark-700 flex items-center justify-between">
-            <h2 className="font-bold">
-              Cart ({cart.length})
-            </h2>
-            {cart.length > 0 && (
-              <button
-                onClick={async () => { await clearCart(); setCart([]) }}
-                className="text-red-400 hover:text-red-300 text-sm"
-              >
-                Clear
-              </button>
-            )}
+        <div className="w-full md:w-96 bg-white border-t md:border-t-0 md:border-l border-gray-200 flex flex-col max-h-[50vh] md:max-h-none">
+          <div className="p-4 border-b border-gray-200">
+            <h2 className="font-bold text-gray-900">Current Order</h2>
+            <div className="flex items-center justify-between mt-0.5">
+              <p className="text-gray-400 text-xs">Verify order and quantity</p>
+              {cart.length > 0 && (
+                <button
+                  onClick={async () => { await clearCart(); setCart([]) }}
+                  className="text-red-500 hover:text-red-600 text-xs font-medium"
+                >
+                  Clear
+                </button>
+              )}
+            </div>
           </div>
 
           <div className="flex-1 overflow-y-auto p-4">
             {cart.length === 0 ? (
-              <div className="text-center py-10 text-dark-400">
+              <div className="text-center py-10 text-gray-400">
                 <p className="text-4xl mb-2">🛒</p>
                 <p>Tap products to add</p>
               </div>
             ) : (
               <div className="space-y-3">
                 {cart.map(item => (
-                  <div key={item.id} className="bg-dark-700 rounded-xl p-3 flex items-center gap-3">
+                  <div key={item.id} className="bg-gray-50 border border-gray-200 rounded-xl p-3 flex items-center gap-3">
+                    <div className="w-10 h-10 bg-gray-200 rounded-lg flex-shrink-0"></div>
                     <div className="flex-1 min-w-0">
-                      <p className="font-medium text-sm truncate text-white">{item.name}</p>
-                      <p className="text-primary-500 text-sm">₱{item.price}</p>
+                      <p className="font-medium text-sm truncate text-gray-900">{item.name}</p>
+                      <p className="text-blue-600 text-sm font-medium">₱{item.price.toFixed(2)}</p>
                     </div>
                     <div className="flex items-center gap-2">
                       <button
                         onClick={() => handleUpdateQuantity(item.id, -1)}
-                        className="w-8 h-8 rounded-lg bg-dark-600 hover:bg-dark-500 flex items-center justify-center text-white transition-colors"
+                        className="w-8 h-8 rounded-lg bg-white border border-gray-300 hover:bg-gray-100 flex items-center justify-center text-gray-700 transition-colors"
                       >
-                        -
+                        −
                       </button>
-                      <span className="w-6 text-center font-medium text-white text-sm">
+                      <span className="w-6 text-center font-medium text-gray-900 text-sm">
                         {item.quantity}
                       </span>
                       <button
                         onClick={() => handleUpdateQuantity(item.id, 1)}
-                        className="w-8 h-8 rounded-lg bg-dark-600 hover:bg-dark-500 flex items-center justify-center text-white transition-colors"
+                        className="w-8 h-8 rounded-lg bg-white border border-gray-300 hover:bg-gray-100 flex items-center justify-center text-gray-700 transition-colors"
                       >
                         +
                       </button>
                       <button
                         onClick={() => handleRemoveFromCart(item.id)}
-                        className="w-8 h-8 rounded-lg bg-red-500/20 hover:bg-red-500/30 text-red-400 flex items-center justify-center transition-colors"
+                        className="w-8 h-8 rounded-lg bg-red-50 hover:bg-red-100 text-red-500 flex items-center justify-center transition-colors"
                       >
                         ✕
                       </button>
@@ -436,74 +488,104 @@ export default function POS() {
             )}
           </div>
 
-          <div className="p-4 border-t border-dark-700">
-            <div className="flex items-center justify-between mb-4">
-              <span className="text-dark-400">Total</span>
-              <span className="text-2xl font-bold text-white">₱{cartTotal.toLocaleString()}</span>
-            </div>
+          <div className="p-4 border-t border-gray-200">
+            {cart.length > 0 && (
+              <div className="space-y-1.5 mb-4 text-sm">
+                <div className="flex items-center justify-between text-gray-500">
+                  <span>Subtotal</span>
+                  <span>₱{netSubtotal.toFixed(2)}</span>
+                </div>
+                <div className="flex items-center justify-between text-gray-500">
+                  <span>VAT (12%)</span>
+                  <span>₱{vatAmount.toFixed(2)}</span>
+                </div>
+                <div className="flex items-center justify-between pt-2 border-t border-gray-200">
+                  <span className="font-medium text-gray-900">Total</span>
+                  <span className="text-xl font-bold text-blue-600">₱{cartTotal.toFixed(2)}</span>
+                </div>
+              </div>
+            )}
             <button
-              onClick={() => setShowPayment(true)}
+              onClick={openPayment}
               disabled={cart.length === 0}
-              className="w-full bg-primary-600 hover:bg-primary-700 text-white font-medium py-3 px-6 rounded-xl transition-all active:scale-95 disabled:opacity-50 disabled:cursor-not-allowed"
+              className="w-full bg-blue-600 hover:bg-blue-700 text-white font-medium py-3 px-6 rounded-xl transition-all active:scale-95 disabled:opacity-50 disabled:cursor-not-allowed"
             >
-              Checkout
+              Proceed to Payment (₱{cartTotal.toFixed(2)})
             </button>
           </div>
         </div>
       </div>
 
       {showPayment && (
-        <div className="fixed inset-0 bg-black/50 flex items-end md:items-center justify-center z-50">
-          <div className="bg-dark-800 rounded-t-2xl md:rounded-2xl w-full max-w-md p-6 border border-dark-700">
-            <div className="flex items-center justify-between mb-6">
-              <h2 className="text-xl font-bold text-white">Select Payment</h2>
+        <div className="fixed inset-0 bg-black/40 flex items-end md:items-center justify-center z-50">
+          <div className="bg-white rounded-t-2xl md:rounded-2xl w-full max-w-md p-6 border border-gray-200 max-h-[90vh] overflow-y-auto">
+            <div className="flex items-start justify-between mb-4">
+              <div>
+                <h2 className="text-xl font-bold text-gray-900">Select Payment</h2>
+                <p className="text-gray-400 text-sm">Choose gateway or tender type</p>
+              </div>
               <button
                 onClick={() => setShowPayment(false)}
-                className="text-dark-400 hover:text-white text-xl transition-colors"
+                className="text-gray-400 hover:text-gray-900 text-xl transition-colors"
               >
                 ✕
               </button>
             </div>
 
-            <div className="text-center mb-6">
-              <p className="text-dark-400 text-sm">Total Amount</p>
-              <p className="text-3xl font-bold text-primary-500">
-                ₱{cartTotal.toLocaleString()}
+            <div className="bg-gray-50 border border-gray-200 rounded-2xl py-6 text-center mb-6">
+              <p className="text-gray-500 text-sm">Total Due Amount</p>
+              <p className="text-3xl font-bold text-blue-600 mt-1">
+                ₱{cartTotal.toFixed(2)}
               </p>
+              {orderRef && (
+                <span className="inline-block mt-2 text-xs font-medium text-green-700 bg-green-100 rounded-full px-3 py-1">
+                  Order ID: {orderRef}
+                </span>
+              )}
             </div>
 
-            <div className="space-y-3">
-              <button
-                onClick={() => handleCheckout('cash')}
-                className="w-full bg-dark-700 hover:bg-dark-600 rounded-xl p-4 text-left flex items-center gap-4 transition-colors border border-dark-600"
-              >
-                <span className="text-2xl">💵</span>
-                <div>
-                  <p className="font-medium text-white">Cash</p>
-                  <p className="text-dark-400 text-sm">Physical cash payment</p>
-                </div>
-              </button>
-              <button
-                onClick={() => handleCheckout('gcash')}
-                className="w-full bg-dark-700 hover:bg-dark-600 rounded-xl p-4 text-left flex items-center gap-4 transition-colors border border-dark-600"
-              >
-                <span className="text-2xl">📱</span>
-                <div>
-                  <p className="font-medium text-white">GCash</p>
-                  <p className="text-dark-400 text-sm">GCash e-wallet</p>
-                </div>
-              </button>
-              <button
-                onClick={() => handleCheckout('maya')}
-                className="w-full bg-dark-700 hover:bg-dark-600 rounded-xl p-4 text-left flex items-center gap-4 transition-colors border border-dark-600"
-              >
-                <span className="text-2xl">💳</span>
-                <div>
-                  <p className="font-medium text-white">Maya</p>
-                  <p className="text-dark-400 text-sm">Maya e-wallet</p>
-                </div>
-              </button>
+            <div className="space-y-3 mb-4">
+              {PAYMENT_METHODS.map(method => {
+                const isSelected = selectedPayment === method.id
+                return (
+                  <button
+                    key={method.id}
+                    onClick={() => setSelectedPayment(method.id)}
+                    className={`w-full rounded-xl p-4 text-left flex items-center gap-4 transition-colors border ${
+                      isSelected
+                        ? 'border-blue-500 bg-blue-50/50'
+                        : 'border-gray-200 hover:bg-gray-50'
+                    }`}
+                  >
+                    <div className={`w-10 h-10 rounded-lg ${method.iconBg} flex items-center justify-center text-lg flex-shrink-0`}>
+                      {method.icon}
+                    </div>
+                    <div className="flex-1 min-w-0">
+                      <p className="font-medium text-gray-900">{method.label}</p>
+                      <p className="text-gray-400 text-sm">{method.description}</p>
+                    </div>
+                    <div className={`w-5 h-5 rounded-full border-2 flex-shrink-0 flex items-center justify-center ${
+                      isSelected ? 'border-blue-600' : 'border-gray-300'
+                    }`}>
+                      {isSelected && <div className="w-2.5 h-2.5 rounded-full bg-blue-600"></div>}
+                    </div>
+                  </button>
+                )
+              })}
             </div>
+
+            {!isOnline && (
+              <p className="text-gray-400 text-xs mb-4 flex items-center gap-1.5">
+                <span>💾</span> Saved locally in IndexedDB. Syncing in background...
+              </p>
+            )}
+
+            <button
+              onClick={() => handleCheckout(selectedPayment)}
+              className="w-full bg-blue-600 hover:bg-blue-700 text-white font-medium py-3 px-6 rounded-xl transition-all active:scale-95"
+            >
+              Confirm &amp; Pay {selectedMethod?.label.split(' ')[0]}
+            </button>
           </div>
         </div>
       )}

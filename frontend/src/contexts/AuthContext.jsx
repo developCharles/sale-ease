@@ -40,6 +40,7 @@ export function AuthProvider({ children }) {
           email,
           role,
           pin_hash,
+          tenant_id,
           tenant:tenants (
             id,
             business_name,
