@@ -1,7 +1,7 @@
-export default function SettingsPage() {
+export default function SalesSummaryPage() {
   return (
     <div className="flex-1 flex items-center justify-center min-h-[60vh] text-gray-400">
-      Settings coming soon
+      Sales Summary coming soon
     </div>
   )
 }
