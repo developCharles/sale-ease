@@ -58,9 +58,22 @@ export default function CartPage() {
     setTenderError('')
   }
 
+  // Mobile-safe cash entry: only allow digits + a single decimal point.
+  // (type="number" is unreliable on iOS/Android — it can blank out onChange
+  //  values, so we use a text field with a numeric keypad instead.)
+  function handleTenderedChange(value) {
+    const cleaned = value.replace(/[^0-9.]/g, '')
+    const parts = cleaned.split('.')
+    const sanitized = parts.length > 1 ? parts[0] + '.' + parts.slice(1).join('') : cleaned
+    setTendered(sanitized)
+    setTenderError('')
+  }
+
   // Hey! This is where checkout happens — the heavy lifting is inside CartContext.
   // It returns { ok, offline } so this page just handles the UI aftermath.
   // NOTE: we snapshot the cart BEFORE checkout because success wipes the cart.
+  // try/catch/finally guards against any unexpected throw so the UI never
+  // gets stuck on "Processing..." without a receipt or an error message.
   async function handleCheckout(paymentMethod) {
     if (isCash && tenderedNum < cartTotal) {
       setTenderError(`Insufficient cash — need ₱${(cartTotal - tenderedNum).toFixed(2)} more`)
@@ -76,14 +89,19 @@ export default function CartPage() {
     }
 
     setIsProcessing(true)
-    const result = await checkout(paymentMethod)
-    setIsProcessing(false)
-
-    if (result?.ok) {
-      setShowPayment(false)
-      setCompletedSale({ ...saleSnapshot, offline: result.offline })
-    } else {
+    try {
+      const result = await checkout(paymentMethod)
+      if (result?.ok) {
+        setShowPayment(false)
+        setCompletedSale({ ...saleSnapshot, offline: result.offline })
+      } else {
+        alert('Error completing sale. Please try again.')
+      }
+    } catch (error) {
+      console.error('Checkout failed:', error)
       alert('Error completing sale. Please try again.')
+    } finally {
+      setIsProcessing(false)
     }
   }
 
@@ -284,51 +302,21 @@ export default function CartPage() {
               )}
             </div>
 
-            {/* Payment method picker */}
-            <div className="space-y-3 mb-4">
-              {PAYMENT_METHODS.map(method => {
-                const Icon = method.icon
-                const isSelected = selectedPayment === method.id
-                return (
-                  <button
-                    key={method.id}
-                    onClick={() => selectPayment(method.id)}
-                    className={`w-full rounded-xl p-4 text-left flex items-center gap-4 transition-colors border ${
-                      isSelected ? 'border-blue-500 bg-blue-50/50' : 'border-gray-200 hover:bg-gray-50'
-                    }`}
-                  >
-                    <div className={`w-11 h-11 rounded-xl ${method.iconBg} flex items-center justify-center flex-shrink-0`}>
-                      <Icon size={20} />
-                    </div>
-                    <div className="flex-1 min-w-0">
-                      <p className="font-medium text-gray-900">{method.label}</p>
-                      <p className="text-gray-400 text-sm">{method.description}</p>
-                    </div>
-                    <div className={`w-5 h-5 rounded-full border-2 flex-shrink-0 flex items-center justify-center ${
-                      isSelected ? 'border-blue-600' : 'border-gray-300'
-                    }`}>
-                      {isSelected && <div className="w-2.5 h-2.5 rounded-full bg-blue-600"></div>}
-                    </div>
-                  </button>
-                )
-              })}
-            </div>
-
-            {/* Cash tender controls — only shown when Cash is selected.
+            {/* Cash tender controls — on top because Cash is the default method,
+                so the cashier SEES the entry field the moment the sheet opens.
                 Hey! This is the CASHIER ZONE: type what the customer hands you
                 (or tap a quick chip) and the change figure updates live. */}
             {isCash && (
-              <div className="mb-4">
+              <div className="mb-6">
                 <label className="block text-sm font-medium text-gray-700 mb-2">Cash Received</label>
                 <div className="relative">
                   <span className="absolute left-4 top-1/2 -translate-y-1/2 text-gray-400 font-bold">₱</span>
                   <input
-                    type="number"
+                    type="text"
                     inputMode="decimal"
-                    min="0"
-                    step="0.01"
+                    autoComplete="off"
                     value={tendered}
-                    onChange={(e) => { setTendered(e.target.value); setTenderError('') }}
+                    onChange={(e) => handleTenderedChange(e.target.value)}
                     placeholder="0.00"
                     className={`w-full pl-9 pr-4 py-3.5 bg-gray-50 border rounded-xl text-xl font-bold text-gray-900 focus:outline-none focus:ring-2 focus:ring-blue-500 ${
                       tenderError ? 'border-red-300 focus:ring-red-400' : 'border-gray-200'
@@ -374,6 +362,36 @@ export default function CartPage() {
                 )}
               </div>
             )}
+
+            {/* Payment method picker */}
+            <div className="space-y-3 mb-4">
+              {PAYMENT_METHODS.map(method => {
+                const Icon = method.icon
+                const isSelected = selectedPayment === method.id
+                return (
+                  <button
+                    key={method.id}
+                    onClick={() => selectPayment(method.id)}
+                    className={`w-full rounded-xl p-4 text-left flex items-center gap-4 transition-colors border ${
+                      isSelected ? 'border-blue-500 bg-blue-50/50' : 'border-gray-200 hover:bg-gray-50'
+                    }`}
+                  >
+                    <div className={`w-11 h-11 rounded-xl ${method.iconBg} flex items-center justify-center flex-shrink-0`}>
+                      <Icon size={20} />
+                    </div>
+                    <div className="flex-1 min-w-0">
+                      <p className="font-medium text-gray-900">{method.label}</p>
+                      <p className="text-gray-400 text-sm">{method.description}</p>
+                    </div>
+                    <div className={`w-5 h-5 rounded-full border-2 flex-shrink-0 flex items-center justify-center ${
+                      isSelected ? 'border-blue-600' : 'border-gray-300'
+                    }`}>
+                      {isSelected && <div className="w-2.5 h-2.5 rounded-full bg-blue-600"></div>}
+                    </div>
+                  </button>
+                )
+              })}
+            </div>
 
             {/* Offline note */}
             {!isOnline && (
