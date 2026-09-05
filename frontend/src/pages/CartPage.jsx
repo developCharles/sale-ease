@@ -1,7 +1,8 @@
 import { useState } from 'react'
 import { useNavigate } from 'react-router-dom'
 import {
-  Minus, Plus, X, Trash2, Banknote, Smartphone, QrCode, ShoppingCart
+  Minus, Plus, X, Trash2, Banknote, Smartphone, QrCode, ShoppingCart,
+  CheckCircle2, WifiOff
 } from 'lucide-react'
 import { useCart } from '../contexts/CartContext'
 
@@ -15,6 +16,9 @@ const PAYMENT_METHODS = [
   { id: 'maya', label: 'Maya QR', description: 'Scan and pay instantly',
     icon: QrCode, iconBg: 'bg-amber-100 text-amber-700' },
 ]
+
+// Common Philippine cash denominations for the quick-tender chips
+const QUICK_CASH = [20, 50, 100, 200, 500, 1000]
 
 export default function CartPage() {
   // Everything data-related ships from CartContext — this page is pure UI
@@ -30,27 +34,54 @@ export default function CartPage() {
   const [orderRef, setOrderRef] = useState(null)
   const [isProcessing, setIsProcessing] = useState(false)
 
+  // Cash tender state — only used when the cash method is selected
+  const [tendered, setTendered] = useState('')
+  const [tenderError, setTenderError] = useState('')
+
+  // Snapshot of the finished sale so we can render the receipt screen
+  const [completedSale, setCompletedSale] = useState(null)
+
   function openPayment() {
     setOrderRef(`#${Date.now().toString().slice(-4)}`)
     setSelectedPayment('cash')
+    setTendered('')
+    setTenderError('')
     setShowPayment(true)
+  }
+
+  const tenderedNum = parseFloat(tendered) || 0
+  const change = tenderedNum - cartTotal
+  const isCash = selectedPayment === 'cash'
+
+  function selectPayment(methodId) {
+    setSelectedPayment(methodId)
+    setTenderError('')
   }
 
   // Hey! This is where checkout happens — the heavy lifting is inside CartContext.
   // It returns { ok, offline } so this page just handles the UI aftermath.
+  // NOTE: we snapshot the cart BEFORE checkout because success wipes the cart.
   async function handleCheckout(paymentMethod) {
+    if (isCash && tenderedNum < cartTotal) {
+      setTenderError(`Insufficient cash — need ₱${(cartTotal - tenderedNum).toFixed(2)} more`)
+      return
+    }
+
+    const saleSnapshot = {
+      items: cart.map(item => ({ ...item })),
+      total: cartTotal,
+      paymentMethod,
+      orderRef,
+      change: isCash ? change : null,
+    }
+
     setIsProcessing(true)
     const result = await checkout(paymentMethod)
     setIsProcessing(false)
 
     if (result?.ok) {
       setShowPayment(false)
-      if (result.offline) {
-        alert('Sale saved offline. Will sync when connected.')
-      } else {
-        alert(`Sale completed! Order ${orderRef}`)
-        navigate('/app')
-      }
+      setCompletedSale({ ...saleSnapshot, offline: result.offline })
     } else {
       alert('Error completing sale. Please try again.')
     }
@@ -58,6 +89,80 @@ export default function CartPage() {
 
   const selectedMethod = PAYMENT_METHODS.find(m => m.id === selectedPayment)
 
+  // ---------- RECEIPT / SUCCESS SCREEN ----------
+  // Shown instead of the cart after a sale completes.
+  if (completedSale) {
+    const receiptMethod = PAYMENT_METHODS.find(m => m.id === completedSale.paymentMethod)
+    const receiptNet = completedSale.total / (1 + 0.12)
+    return (
+      <div className="p-4 flex flex-col h-full">
+        <div className="flex-1 overflow-y-auto flex items-center justify-center py-2">
+          <div className="w-full bg-white border border-gray-200 rounded-3xl p-6 text-center">
+            {/* Big green check — the "sale went through" signal */}
+            <div className="w-16 h-16 bg-green-100 text-green-600 rounded-full flex items-center justify-center mx-auto mb-3">
+              <CheckCircle2 size={32} />
+            </div>
+            <h1 className="text-2xl font-bold text-gray-900">Payment Successful</h1>
+            <p className="text-gray-400 text-sm">Order {completedSale.orderRef}</p>
+
+            {/* Offline badge — only on a local-first sale */}
+            {completedSale.offline && (
+              <p className="inline-flex items-center gap-1.5 text-xs text-amber-700 bg-amber-100 rounded-full px-3 py-1 mt-2">
+                <WifiOff size={14} /> Saved offline — will sync when connected
+              </p>
+            )}
+
+            {/* The receipt itself — itemized */}
+            <div className="text-left mt-5 border-t border-dashed border-gray-200 pt-4 space-y-2">
+              {completedSale.items.map(item => (
+                <div key={item.id} className="flex justify-between text-sm">
+                  <span className="text-gray-600">
+                    {item.name} <span className="text-gray-400">× {item.quantity}</span>
+                  </span>
+                  <span className="font-medium text-gray-900">₱{(item.price * item.quantity).toFixed(2)}</span>
+                </div>
+              ))}
+
+              <div className="border-t border-gray-200 mt-3 pt-3 space-y-1">
+                <div className="flex justify-between text-sm text-gray-500">
+                  <span>Subtotal</span>
+                  <span>₱{receiptNet.toFixed(2)}</span>
+                </div>
+                <div className="flex justify-between text-sm text-gray-500">
+                  <span>VAT (12%)</span>
+                  <span>₱{(completedSale.total - receiptNet).toFixed(2)}</span>
+                </div>
+                <div className="flex justify-between items-center pt-2 border-t border-gray-200">
+                  <span className="font-medium text-gray-900">Total</span>
+                  <span className="text-2xl font-bold text-blue-600">₱{completedSale.total.toFixed(2)}</span>
+                </div>
+                <div className="flex justify-between text-sm text-gray-500 pt-1">
+                  <span>{receiptMethod?.label}</span>
+                  <span className="font-medium text-gray-700">Paid ₱{(completedSale.total + (completedSale.change ?? 0)).toFixed(2)}</span>
+                </div>
+                {/* Change row only makes sense for cash tenders */}
+                {completedSale.change != null && (
+                  <div className="flex justify-between text-sm text-green-600 font-medium">
+                    <span>Change</span>
+                    <span>₱{completedSale.change.toFixed(2)}</span>
+                  </div>
+                )}
+              </div>
+            </div>
+          </div>
+        </div>
+
+        <button
+          onClick={() => navigate('/app')}
+          className="w-full bg-blue-600 hover:bg-blue-700 text-white font-medium py-3.5 px-6 rounded-xl transition-all active:scale-95 mt-4"
+        >
+          New Sale
+        </button>
+      </div>
+    )
+  }
+
+  // ---------- CART VIEW ----------
   return (
     <div className="flex flex-col h-full p-4 pb-2">
       {/* Page header — title + Clear action with icon */}
@@ -78,9 +183,8 @@ export default function CartPage() {
       {/* Cart line items */}
       <div className="flex-1 overflow-y-auto">
         {cart.length === 0 ? (
-          // Empty state — icon instead of 🛒 emoji
-          <div className="text-center py-20 text-gray-400">
-            <ShoppingCart size={48} className="mx-auto mb-3 text-gray-300" />
+          <div className="flex flex-col items-center justify-center py-20 text-gray-400">
+            <ShoppingCart size={48} className="mb-3 text-gray-300" />
             <p>Your cart is empty</p>
             <p className="text-sm">Tap products on the tray to add them</p>
           </div>
@@ -188,7 +292,7 @@ export default function CartPage() {
                 return (
                   <button
                     key={method.id}
-                    onClick={() => setSelectedPayment(method.id)}
+                    onClick={() => selectPayment(method.id)}
                     className={`w-full rounded-xl p-4 text-left flex items-center gap-4 transition-colors border ${
                       isSelected ? 'border-blue-500 bg-blue-50/50' : 'border-gray-200 hover:bg-gray-50'
                     }`}
@@ -210,10 +314,71 @@ export default function CartPage() {
               })}
             </div>
 
+            {/* Cash tender controls — only shown when Cash is selected.
+                Hey! This is the CASHIER ZONE: type what the customer hands you
+                (or tap a quick chip) and the change figure updates live. */}
+            {isCash && (
+              <div className="mb-4">
+                <label className="block text-sm font-medium text-gray-700 mb-2">Cash Received</label>
+                <div className="relative">
+                  <span className="absolute left-4 top-1/2 -translate-y-1/2 text-gray-400 font-bold">₱</span>
+                  <input
+                    type="number"
+                    inputMode="decimal"
+                    min="0"
+                    step="0.01"
+                    value={tendered}
+                    onChange={(e) => { setTendered(e.target.value); setTenderError('') }}
+                    placeholder="0.00"
+                    className={`w-full pl-9 pr-4 py-3.5 bg-gray-50 border rounded-xl text-xl font-bold text-gray-900 focus:outline-none focus:ring-2 focus:ring-blue-500 ${
+                      tenderError ? 'border-red-300 focus:ring-red-400' : 'border-gray-200'
+                    }`}
+                  />
+                </div>
+
+                {/* Quick-tender chips — Exact + common bill denominations */}
+                <div className="flex flex-wrap gap-2 mt-3">
+                  <button
+                    type="button"
+                    onClick={() => { setTendered(String(cartTotal.toFixed(2))); setTenderError('') }}
+                    className="px-3 py-2 rounded-full text-sm font-medium bg-blue-600 text-white active:scale-95 transition-all"
+                  >
+                    Exact
+                  </button>
+                  {QUICK_CASH.map(amt => (
+                    <button
+                      key={amt}
+                      type="button"
+                      onClick={() => { setTendered(String(amt)); setTenderError('') }}
+                      className="px-3 py-2 rounded-full text-sm font-medium bg-white border border-gray-200 hover:border-blue-500 active:scale-95 transition-all"
+                    >
+                      ₱{amt}
+                    </button>
+                  ))}
+                </div>
+
+                {/* Live feedback: either how much more is needed, or the change */}
+                {tenderedNum > 0 && (
+                  <div className={`mt-3 flex items-center justify-between text-sm ${
+                    tenderedNum < cartTotal ? 'text-red-600' : 'text-green-600'
+                  }`}>
+                    <span>
+                      {tenderedNum < cartTotal
+                        ? `Need ₱${(cartTotal - tenderedNum).toFixed(2)} more`
+                        : 'Change'}
+                    </span>
+                    <span className="text-xl font-bold">
+                      {tenderedNum < cartTotal ? '—' : `₱${change.toFixed(2)}`}
+                    </span>
+                  </div>
+                )}
+              </div>
+            )}
+
             {/* Offline note */}
             {!isOnline && (
               <p className="text-gray-400 text-xs mb-4 flex items-center gap-1.5">
-                Saved locally. Syncing in background...
+                <WifiOff size={14} /> Saved locally. Syncing in background...
               </p>
             )}
 
