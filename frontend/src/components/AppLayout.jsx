@@ -21,9 +21,9 @@ export default function AppLayout() {
           inside <Outlet /> right here.
           - flex-1 lets it fill the space between banner and nav
           - overflow-y-auto makes the page scroll, not the whole screen
-          - pb-20 keeps content from hiding behind the fixed bottom nav
+          - pb-24 keeps content from hiding behind the floating bottom pill (~96px)
           - pt-10 makes room for the banner when offline */}
-      <main className={`flex-1 overflow-y-auto ${isOnline ? '' : 'pt-10'}`}>
+      <main className={`flex-1 overflow-y-auto pb-24 ${isOnline ? '' : 'pt-10'}`}>
         <Outlet />
       </main>
 

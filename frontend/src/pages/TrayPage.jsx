@@ -1,6 +1,6 @@
 import { useState } from 'react'
 import { useNavigate } from 'react-router-dom'
-import { Settings } from 'lucide-react'
+import { Coffee, Settings } from 'lucide-react'
 import { useAuth } from '../contexts/AuthContext'
 import { useCart } from '../contexts/CartContext'
 
@@ -89,7 +89,7 @@ export default function TrayPage() {
                 {product.image_url ? (
                   <img src={product.image_url} alt={product.name} className="w-full h-full object-cover" />
                 ) : (
-                  <span className="text-3xl opacity-50">☕</span>
+                  <Coffee size={32} strokeWidth={1.5} className="text-gray-300" />
                 )}
               </div>
               {/* Product name + price — tap does addToCart automatically */}
@@ -99,7 +99,7 @@ export default function TrayPage() {
           ))}
           {filteredProducts.length === 0 && (
             <div className="col-span-full text-center py-10 text-gray-400">
-              <p className="text-4xl mb-2">☕</p>
+              <Coffee size={40} className="mx-auto mb-2 text-gray-300" />
               <p>No products found</p>
             </div>
           )}

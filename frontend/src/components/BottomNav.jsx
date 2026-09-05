@@ -35,7 +35,7 @@ export default function BottomNav() {
               end={tab.to === '/app'}
               aria-label={tab.label}
               className={({ isActive }) =>
-                `flex items-center justify-center rounded-full min-h-11 transition-all ${
+                `relative flex items-center justify-center rounded-full min-h-11 transition-all ${
                   isActive
                     ? 'bg-blue-600 text-white shadow-md'
                     : 'text-gray-500 hover:text-gray-900 active:scale-95'
