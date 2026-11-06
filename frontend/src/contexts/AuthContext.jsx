@@ -31,6 +31,10 @@ export function AuthProvider({ children }) {
     return () => subscription.unsubscribe()
   }, [])
 
+  async function refreshProfile() {
+    if (user) await fetchProfile(user.id)
+  }
+
   async function fetchProfile(userId) {
     try {
       const { data, error } = await supabase
@@ -86,6 +90,7 @@ export function AuthProvider({ children }) {
     login,
     logout,
     isAdmin,
+    refreshProfile, 
     tenant: profile?.tenant
   }
 
